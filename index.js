@@ -1,55 +1,79 @@
-import dotenv from "dotenv";
-import fetch from "node-fetch";
-import { Client, GatewayIntentBits, EmbedBuilder } from "discord.js";
-
-dotenv.config();
+require('dotenv').config();
+const { Client, GatewayIntentBits, EmbedBuilder } = require('discord.js');
+const fetch = require('node-fetch');
 
 const client = new Client({
-  intents: [GatewayIntentBits.Guilds],
+  intents: [GatewayIntentBits.Guilds, GatewayIntentBits.GuildMessages]
 });
 
-const MONITORS = [
-  { name: "Quinx Chat", url: "https://chat-uptime.com" },
-  { name: "Quinx Roles", url: "https://roles-uptime.com" },
-  { name: "Quinx Support", url: "https://support-uptime.com" },
-];
+const monitorNames = {
+  'Quinx Chat': 'Quinx Chat',
+  'Quinx Roles': 'Quinx Roles',
+  'Quinx | Support': 'Quinx | Support'
+};
 
-async function checkStatus() {
-  const results = await Promise.allSettled(
-    MONITORS.map((m) =>
-      fetch(m.url, { method: "HEAD", timeout: 5000 }).then((res) => ({
-        name: m.name,
-        status: res.ok ? "🟢 Active" : "🔴 Offline",
-      }))
-    )
-  );
+const STATUS_EMOJIS = {
+  2: '🟢 Online',
+  9: '🔴 Offline'
+};
 
-  const statuses = results.map((result, i) => {
-    if (result.status === "fulfilled") return `${result.value.name}: ${result.value.status}`;
-    return `${MONITORS[i].name}: 🔴 Offline`;
+let statusMessage = null;
+const channelId = 'YOUR_CHANNEL_ID_HERE'; // Replace with your actual channel ID
+
+async function fetchStatuses() {
+  const res = await fetch('https://api.uptimerobot.com/v2/getMonitors', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+    body: new URLSearchParams({
+      api_key: process.env.UPTIMEROBOT_API_KEY,
+      format: 'json'
+    })
   });
 
+  const data = await res.json();
+
+  if (!data.monitors) {
+    console.error('❌ Error fetching monitors:', data);
+    return null;
+  }
+
+  let statusLines = [];
+
+  for (const monitor of data.monitors) {
+    if (monitorNames[monitor.friendly_name]) {
+      const name = monitor.friendly_name;
+      const status = STATUS_EMOJIS[monitor.status] || '❔ Unknown';
+      statusLines.push(`${name}: ${status}`);
+    }
+  }
+
+  return statusLines;
+}
+
+async function updateStatus() {
+  const channel = await client.channels.fetch(channelId);
+  if (!channel) return;
+
+  const statuses = await fetchStatuses();
+  if (!statuses) return;
+
   const embed = new EmbedBuilder()
-    .setTitle("🔧 Quinx Bot Status")
-    .setDescription(statuses.join("\n"))
-    .setColor(0x9370db) // Purple
+    .setTitle('🔧 Quinx Bot Status')
+    .setDescription(statuses.join('\n'))
+    .setColor('#8000ff')
     .setTimestamp();
 
-  const channel = await client.channels.fetch(process.env.CHANNEL_ID);
-  if (channel) {
-    if (!global.statusMessage) {
-      const msg = await channel.send({ embeds: [embed] });
-      global.statusMessage = msg;
-    } else {
-      global.statusMessage.edit({ embeds: [embed] });
-    }
+  if (!statusMessage) {
+    statusMessage = await channel.send({ embeds: [embed] });
+  } else {
+    await statusMessage.edit({ embeds: [embed] });
   }
 }
 
-client.once("ready", () => {
+client.once('ready', async () => {
   console.log(`✅ Logged in as ${client.user.tag}`);
-  checkStatus();
-  setInterval(checkStatus, 60_000); // every 60 seconds
+  await updateStatus();
+  setInterval(updateStatus, 60_000); // every 1 minute
 });
 
 client.login(process.env.DISCORD_TOKEN);
