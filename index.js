@@ -1,85 +1,89 @@
-import { Client, GatewayIntentBits, EmbedBuilder, ActivityType } from 'discord.js';
-import fetch from 'node-fetch';
-import dotenv from 'dotenv';
-import fs from 'fs';
-
-dotenv.config();
+require('dotenv').config();
+const { Client, GatewayIntentBits, EmbedBuilder } = require('discord.js');
+const fetch = require('node-fetch');
 
 const client = new Client({
-  intents: [GatewayIntentBits.Guilds, GatewayIntentBits.GuildMessages]
+  intents: [GatewayIntentBits.Guilds],
 });
 
-const { TOKEN, CHANNEL_ID } = process.env;
+let messageToEdit;
 
-// List of monitored bots
-const services = [
-  { name: 'Support Bot', url: 'https://support-uptime.com', color: 0x57F287 },
-  { name: 'Mod Bot', url: 'https://mod-uptime.com', color: 0xFEE75C },
-  { name: 'Store Bot', url: 'https://store-uptime.com', color: 0x5865F2 }
+const monitorsToTrack = [
+  "Quinx Chat",
+  "Quinx Roles",
+  "Quinx | Support"
 ];
-
-let messageMap = {};
-try {
-  messageMap = JSON.parse(fs.readFileSync('./data.json'));
-} catch {
-  console.log('No saved messages found.');
-}
 
 client.once('ready', async () => {
   console.log(`✅ Logged in as ${client.user.tag}`);
 
   client.user.setPresence({
-    activities: [{ name: `Quinx's Bot`, type: ActivityType.Watching }],
-    status: 'idle'
+    activities: [{ name: "Quinx's Bots", type: 3 }], // 3 = Watching
+    status: "idle",
   });
 
-  const channel = await client.channels.fetch(CHANNEL_ID);
+  const channel = await client.channels.fetch(process.env.CHANNEL_ID);
+  if (!channel) return console.error("❌ Channel not found");
 
-  for (const service of services) {
-    if (!messageMap[service.name]) {
-      const embed = createEmbed(service.name, true);
-      const msg = await channel.send({ embeds: [embed] });
-      messageMap[service.name] = msg.id;
-      console.log(`📤 Sent new embed for ${service.name}`);
+  // Send embed initially
+  const embed = await generateStatusEmbed();
+  messageToEdit = await channel.send({ embeds: [embed] });
+
+  // Update every 60s
+  setInterval(async () => {
+    const newEmbed = await generateStatusEmbed();
+    if (messageToEdit) {
+      messageToEdit.edit({ embeds: [newEmbed] });
     }
-  }
-
-  fs.writeFileSync('./data.json', JSON.stringify(messageMap, null, 2));
-  checkAll();
-  setInterval(checkAll, 60 * 1000);
+  }, 60000);
 });
 
-async function checkAll() {
-  for (const service of services) {
-    await checkService(service);
-  }
-}
+async function generateStatusEmbed() {
+  const monitorData = await fetchMonitorData();
 
-async function checkService(service) {
-  try {
-    const res = await fetch(service.url, { timeout: 5000 });
-    const isUp = res.ok;
-
-    const embed = createEmbed(service.name, isUp);
-    const channel = await client.channels.fetch(CHANNEL_ID);
-    const msg = await channel.messages.fetch(messageMap[service.name]);
-
-    await msg.edit({ embeds: [embed] });
-    console.log(`[${new Date().toLocaleTimeString()}] Updated ${service.name} → ${isUp ? 'UP' : 'DOWN'}`);
-  } catch (err) {
-    console.error(`❌ Error checking ${service.name}:`, err.message);
-  }
-}
-
-function createEmbed(name, isUp) {
-  return new EmbedBuilder()
-    .setTitle(`📡 ${name} Status`)
-    .setDescription(isUp
-      ? '✅ This service is **UP** and responding.'
-      : '❌ This service appears to be **DOWN** or unreachable!')
-    .setColor(isUp ? 0x57F287 : 0xED4245)
-    .setFooter({ text: `Last checked` })
+  const embed = new EmbedBuilder()
+    .setTitle("🔧 Quinx Bot Status")
+    .setColor("#8e44ad")
     .setTimestamp();
+
+  for (const monitor of monitorsToTrack) {
+    const data = monitorData.find(m => m.friendly_name === monitor);
+    let statusIcon = "❓ Unknown";
+
+    if (data) {
+      switch (data.status) {
+        case 2: statusIcon = "🟢 Active"; break;
+        case 9: statusIcon = "🟡 Paused"; break;
+        case 0: statusIcon = "🔴 Down"; break;
+        default: statusIcon = "❔ Unknown";
+      }
+    }
+
+    embed.addFields({ name: monitor, value: statusIcon, inline: false });
+  }
+
+  return embed;
 }
 
-client.login(TOKEN);
+async function fetchMonitorData() {
+  try {
+    const res = await fetch("https://api.uptimerobot.com/v2/getMonitors", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/x-www-form-urlencoded"
+      },
+      body: new URLSearchParams({
+        api_key: process.env.UPTIMEROBOT_API_KEY,
+        format: "json"
+      })
+    });
+
+    const json = await res.json();
+    return json.monitors || [];
+  } catch (err) {
+    console.error("❌ Error fetching UptimeRobot data:", err);
+    return [];
+  }
+}
+
+client.login(process.env.TOKEN);
