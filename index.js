@@ -1,82 +1,98 @@
-import { Client, GatewayIntentBits, EmbedBuilder } from 'discord.js';
-import fetch from 'node-fetch';
-import express from 'express';
-import dotenv from 'dotenv';
+import express from "express";
+import { Client, GatewayIntentBits, EmbedBuilder } from "discord.js";
+import fetch from "node-fetch";
+import dotenv from "dotenv";
 
 dotenv.config();
 
-// Setup express to keep bot alive on Render
+const client = new Client({
+  intents: [
+    GatewayIntentBits.Guilds,
+    GatewayIntentBits.GuildMessages,
+    GatewayIntentBits.GuildPresences,
+    GatewayIntentBits.MessageContent,
+  ],
+});
+
 const app = express();
 const PORT = process.env.PORT || 10000;
-app.get('/', (req, res) => res.send('Quinx Status Bot is running.'));
+
+// Express server to keep Render alive
+app.get("/", (req, res) => res.send("Bot is live!"));
 app.listen(PORT, () => console.log(`Web server running on port ${PORT}`));
 
-// Discord client
-const client = new Client({
-  intents: [GatewayIntentBits.Guilds, GatewayIntentBits.GuildMessages],
-});
+// UptimeRobot API keys and config
+const MONITORS = [
+  {
+    name: "Quinx | Support",
+    apiKey: "m800892506-092936812863f4592e776d48",
+  },
+  {
+    name: "Quinx Roles",
+    apiKey: "u2822432-2c4c6580ce03ea9701e612e3",
+  },
+  {
+    name: "Quinx Chat",
+    apiKey: "u2822432-2c4c6580ce03ea9701e612e3",
+  },
+];
 
-let messageId = null;
+const GUILD_ID = "1389456112876785765";
+const CHANNEL_ID = "1398266959925084221";
 
-client.once('ready', async () => {
-  console.log(`Logged in as ${client.user.tag}`);
+let statusMessage = null;
 
-  const guild = await client.guilds.fetch(process.env.GUILD_ID);
-  const channel = await guild.channels.fetch(process.env.CHANNEL_ID);
+client.once("ready", async () => {
+  console.log(`✅ Bot is online as ${client.user.tag}`);
 
-  const embed = await getStatusEmbed();
-  const sentMessage = await channel.send({ embeds: [embed] });
-  messageId = sentMessage.id;
+  const guild = await client.guilds.fetch(GUILD_ID);
+  const channel = await guild.channels.fetch(CHANNEL_ID);
 
+  const embed = await generateStatusEmbed();
+  statusMessage = await channel.send({ embeds: [embed] });
+
+  // Update every 5 minutes
   setInterval(async () => {
-    const updatedEmbed = await getStatusEmbed();
-    const message = await channel.messages.fetch(messageId);
-    if (message) {
-      await message.edit({ embeds: [updatedEmbed] });
+    const updatedEmbed = await generateStatusEmbed();
+    if (statusMessage) {
+      await statusMessage.edit({ embeds: [updatedEmbed] });
     }
-  }, 5 * 60 * 1000); // 5 minutes
+  }, 5 * 60 * 1000);
 });
 
-client.login(process.env.DISCORD_TOKEN);
-
-// Function to fetch status from UptimeRobot
-async function getStatusEmbed() {
-  const statuses = await Promise.all([
-    fetchStatus(process.env.SUPPORT_MONITOR_KEY),
-    fetchStatus(process.env.ROLES_MONITOR_KEY),
-    fetchStatus(process.env.CHAT_MONITOR_KEY),
-  ]);
-
+async function generateStatusEmbed() {
   const embed = new EmbedBuilder()
-    .setTitle('📊 Quinx Bot Status')
-    .setColor(0x9b59b6)
-    .addFields(
-      { name: '📟 Quinx | Support', value: statuses[0], inline: true },
-      { name: '📟 Quinx | Roles', value: statuses[1], inline: true },
-      { name: '📟 Quinx | Chat', value: statuses[2], inline: true }
-    )
-    .setFooter({ text: 'Updated every 5 minutes' })
+    .setTitle("🟢 Quinx Bot Status")
+    .setColor("Blurple")
     .setTimestamp();
+
+  for (const monitor of MONITORS) {
+    const data = await fetchUptimeStatus(monitor.apiKey);
+    embed.addFields({
+      name: monitor.name,
+      value: data,
+      inline: true,
+    });
+  }
 
   return embed;
 }
 
-async function fetchStatus(apiKey) {
+async function fetchUptimeStatus(apiKey) {
   try {
-    const res = await fetch('https://api.uptimerobot.com/v2/getMonitors', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ api_key: apiKey, format: 'json' }),
+    const res = await fetch("https://api.uptimerobot.com/v2/getMonitors", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ api_key: apiKey, format: "json" }),
     });
+    const json = await res.json();
+    const monitor = json.monitors?.[0];
+    if (!monitor) return "❓ Unknown";
 
-    const data = await res.json();
-    const monitor = data.monitors[0];
-
-    if (monitor.status === 2) return '🟢 Online';
-    if (monitor.status === 9) return '🔴 Offline';
-    return '🟡 Unknown';
-  } catch (err) {
-    console.error('Error fetching status:', err);
-    return '⚠️ Error';
+    return monitor.status === 2 ? "🟢 Online" : "🔴 Offline";
+  } catch (e) {
+    return "⚠️ Error fetching";
   }
 }
+
+client.login(process.env.DISCORD_TOKEN);
