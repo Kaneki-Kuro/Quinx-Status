@@ -1,12 +1,26 @@
+import express from 'express';
 import { Client, GatewayIntentBits, EmbedBuilder } from 'discord.js';
 import fetch from 'node-fetch';
 import 'dotenv/config';
 
+const app = express();
+const port = process.env.PORT || 4000;
+
+app.get('/', (req, res) => {
+  res.send('Quinx Status Bot is live!');
+});
+
+app.listen(port, () => {
+  console.log(`Web server running on port ${port}`);
+});
+
+// Discord bot logic
 const client = new Client({ intents: [GatewayIntentBits.Guilds] });
 
 const guildId = process.env.GUILD_ID;
 const channelId = process.env.CHANNEL_ID;
 const botToken = process.env.BOT_TOKEN;
+
 const monitorKeys = {
   'Quinx | Support': process.env.MONITOR_SUPPORT,
   'Quinx Role': process.env.MONITOR_ROLE,
@@ -40,7 +54,6 @@ async function updateStatus() {
   for (const [name, key] of Object.entries(monitorKeys)) {
     const status = await getStatus(key);
 
-    // Only push if status changed or initial
     if (statusCache[name] !== status) {
       statusCache[name] = status;
     }
@@ -66,7 +79,10 @@ async function updateStatus() {
 client.once('ready', async () => {
   console.log(`Logged in as ${client.user.tag}`);
   await updateStatus();
-  setInterval(updateStatus, 5 * 60 * 1000); // Every 5 minutes
+  setInterval(updateStatus, 5 * 60 * 1000);
 });
+
+process.on('unhandledRejection', console.error);
+process.on('uncaughtException', console.error);
 
 client.login(botToken);
