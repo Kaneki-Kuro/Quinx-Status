@@ -1,109 +1,86 @@
-import { Client, GatewayIntentBits, EmbedBuilder } from 'discord.js';
-import fetch from 'node-fetch';
-import dotenv from 'dotenv';
-import express from 'express';
-
-dotenv.config();
+const { Client, GatewayIntentBits, EmbedBuilder } = require('discord.js');
+const axios = require('axios');
+const express = require('express');
 
 const client = new Client({
   intents: [
     GatewayIntentBits.Guilds,
     GatewayIntentBits.GuildMessages,
-    GatewayIntentBits.MessageContent,
+    GatewayIntentBits.MessageContent
   ],
 });
 
+// ENV Variables
+const TOKEN = process.env.TOKEN;
 const CHANNEL_ID = '1398266959925084221';
-const STAFF_ALERT_CHANNEL_ID = '1390280298742288408';
-
+const STAFF_ALERT_CHANNEL = '1390280298742288408';
 const MONITORS = [
-  {
-    name: 'Quinx',
-    apiKey: 'm800892506-092936812863f4592e776d48',
-  },
-  {
-    name: 'Quinx Role',
-    apiKey: 'u2822432-2c4c6580ce03ea9701e612e3',
-  },
-  {
-    name: 'Quinx Chat',
-    apiKey: 'u2822432-2c4c6580ce03ea9701e612e3',
-  },
+  { name: 'Quinx', key: 'm800892506-092936812863f4592e776d48' },
+  { name: 'Quinx Role', key: 'u2822432-2c4c6580ce03ea9701e612e3' },
+  { name: 'Quinx Chat', key: 'u2822432-2c4c6580ce03ea9701e612e3' }
 ];
 
-let messageToEdit = null;
+let statusMessage = null;
 
-async function checkStatusAndUpdateEmbed() {
-  const statuses = await Promise.all(
-    MONITORS.map(async ({ name, apiKey }) => {
-      try {
-        const res = await fetch('https://api.uptimerobot.com/v2/getMonitors', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ api_key: apiKey, format: 'json' }),
-        });
-
-        const data = await res.json();
-        const status = data.monitors?.[0]?.status;
-        return {
-          name,
-          online: status === 2,
-        };
-      } catch {
-        return { name, online: false };
-      }
-    })
-  );
-
-  const embed = new EmbedBuilder()
-    .setTitle('🔧 Quinx Bot Status')
-    .setColor(0x9146ff)
-    .setDescription(
-      statuses
-        .map(
-          (s) => `${s.name} : ${s.online ? '🟢 Online' : '🔴 Offline'}`
-        )
-        .join('\n')
-    )
-    .setFooter({ text: 'Updates every 5 minutes' })
-    .setTimestamp();
+client.once('ready', async () => {
+  console.log(`✅ Logged in as ${client.user.tag}`);
 
   const channel = await client.channels.fetch(CHANNEL_ID);
+  if (!channel) return console.error('❌ Failed to find channel');
 
-  if (!messageToEdit) {
-    messageToEdit = await channel.send({ embeds: [embed] });
-  } else {
-    await messageToEdit.edit({ embeds: [embed] });
+  const embed = await buildStatusEmbed();
+  statusMessage = await channel.send({ embeds: [embed] });
+
+  setInterval(async () => {
+    const newEmbed = await buildStatusEmbed();
+    await statusMessage.edit({ embeds: [newEmbed] });
+
+    const anyOffline = newEmbed.data.fields.some(f => f.value === '🔴 Offline');
+    if (anyOffline) {
+      const staffChannel = await client.channels.fetch(STAFF_ALERT_CHANNEL);
+      if (staffChannel) {
+        staffChannel.send('⚠️ One or more monitored bots are offline! Please check.');
+      }
+    }
+  }, 5 * 60 * 1000); // Every 5 mins
+});
+
+async function buildStatusEmbed() {
+  const embed = new EmbedBuilder()
+    .setTitle('🛡️ Quinx Bot Status')
+    .setColor(0x9146FF)
+    .setTimestamp();
+
+  for (const monitor of MONITORS) {
+    const status = await getMonitorStatus(monitor.key);
+    embed.addFields({
+      name: monitor.name,
+      value: status === 2 ? '🟢 Online' : '🔴 Offline',
+      inline: false,
+    });
   }
 
-  // Notify staff if any bot is offline
-  const offlineBots = statuses.filter((s) => !s.online);
-  if (offlineBots.length > 0) {
-    const staffChannel = await client.channels.fetch(STAFF_ALERT_CHANNEL_ID);
-    await staffChannel.send(
-      `⚠️ The following bot(s) are offline:\n${offlineBots
-        .map((b) => `**${b.name}**`)
-        .join(', ')}`
-    );
+  return embed;
+}
+
+async function getMonitorStatus(apiKey) {
+  try {
+    const res = await axios.post('https://api.uptimerobot.com/v2/getMonitors', null, {
+      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+      params: { api_key: apiKey, format: 'json' },
+    });
+
+    const monitor = res.data.monitors[0];
+    return monitor.status; // 2 = Up, 9 = Down
+  } catch (err) {
+    console.error('Monitor fetch error:', err.message);
+    return 9;
   }
 }
 
-client.once('ready', async () => {
-  console.log(`Bot is ready as ${client.user.tag}`);
-  await checkStatusAndUpdateEmbed();
-  setInterval(checkStatusAndUpdateEmbed, 5 * 60 * 1000); // Every 5 mins
-});
-
-client.login(process.env.TOKEN);
-
-// Express to keep Render app live
+// Express to keep Render alive
 const app = express();
-const port = process.env.PORT || 3000;
+app.get('/', (_, res) => res.send('Bot is running'));
+app.listen(10000, () => console.log('Web server running on port 10000'));
 
-app.get('/', (_, res) => {
-  res.send('Quinx Status Bot is running!');
-});
-
-app.listen(port, () => {
-  console.log(`Web server running on port ${port}`);
-});
+client.login(TOKEN);
