@@ -1,16 +1,16 @@
 {
   "name": "quinx-status-bot",
   "version": "1.0.0",
-  "description": "Discord bot that tracks uptime of Quinx services",
+  "description": "A bot to monitor Quinx bots using UptimeRobot.",
   "main": "index.js",
   "type": "module",
   "scripts": {
     "start": "node index.js"
   },
   "dependencies": {
-    "discord.js": "^14.0.0",
-    "dotenv": "^16.4.5",
+    "discord.js": "^14.13.0",
     "express": "^4.19.2",
-    "node-fetch": "^3.3.2"
+    "node-fetch": "^3.3.2",
+    "dotenv": "^16.3.1"
   }
 }
