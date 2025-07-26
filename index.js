@@ -1,70 +1,72 @@
-import fetch from 'node-fetch';
 import { Client, GatewayIntentBits, EmbedBuilder } from 'discord.js';
+import fetch from 'node-fetch';
 import 'dotenv/config';
-
-const CHANNEL_ID = process.env.CHANNEL_ID;
-const BOT_TOKEN = process.env.DISCORD_TOKEN;
 
 const client = new Client({ intents: [GatewayIntentBits.Guilds] });
 
-let messageToEdit;
+const guildId = process.env.GUILD_ID;
+const channelId = process.env.CHANNEL_ID;
+const botToken = process.env.BOT_TOKEN;
+const monitorKeys = {
+  'Quinx | Support': process.env.MONITOR_SUPPORT,
+  'Quinx Role': process.env.MONITOR_ROLE,
+  'Quinx Chat': process.env.MONITOR_CHAT,
+};
 
-const bots = [
-  {
-    name: 'Quinx | Support',
-    apiKey: 'm800892506-092936812863f4592e776d48'
-  },
-  {
-    name: 'Quinx Role',
-    apiKey: 'm800908696-2881622ef05dc0650d3ce333'
-  },
-  {
-    name: 'Quinx Chat',
-    apiKey: 'm800886135-7381e8041a8fd32ab404dba0'
+let statusCache = {};
+let statusMessage;
+
+async function getStatus(apiKey) {
+  try {
+    const response = await fetch('https://api.uptimerobot.com/v2/getMonitors', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        api_key: apiKey,
+        format: 'json',
+      }),
+    });
+    const data = await response.json();
+    return data.monitors?.[0]?.status === 2 ? '🟢 Online' : '🔴 Offline';
+  } catch (e) {
+    console.error('Error fetching status:', e);
+    return '⚠️ Error';
   }
-];
-
-function statusToEmoji(status) {
-  if (status === 2) return '✅ Online';
-  if (status === 9) return '❌ Offline';
-  if (status === 0) return '🟡 Paused';
-  return '❔ Unknown';
 }
 
-async function fetchBotStatus(apiKey) {
-  const response = await fetch('https://api.uptimerobot.com/v2/getMonitors', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ api_key: apiKey, format: 'json' })
-  });
-  const data = await response.json();
-  return data.monitors?.[0]?.status || -1;
-}
+async function updateStatus() {
+  const fields = [];
 
-async function updateStatusEmbed() {
+  for (const [name, key] of Object.entries(monitorKeys)) {
+    const status = await getStatus(key);
+
+    // Only push if status changed or initial
+    if (statusCache[name] !== status) {
+      statusCache[name] = status;
+    }
+
+    fields.push({ name, value: status, inline: true });
+  }
+
   const embed = new EmbedBuilder()
-    .setTitle('📡 Quinx Bot Status')
-    .setColor(0x9146ff)
+    .setTitle('🛡️ Quinx Bot Status Monitor')
+    .setColor(0x9b59b6)
     .setTimestamp()
-    .setFooter({ text: 'Last Updated' });
+    .addFields(fields)
+    .setFooter({ text: 'Updated every 5 minutes' });
 
-  for (const bot of bots) {
-    const status = await fetchBotStatus(bot.apiKey);
-    embed.addFields({ name: bot.name, value: statusToEmoji(status), inline: true });
-  }
-
-  if (!messageToEdit) {
-    const channel = await client.channels.fetch(CHANNEL_ID);
-    messageToEdit = await channel.send({ embeds: [embed] });
+  if (!statusMessage) {
+    const channel = await client.channels.fetch(channelId);
+    statusMessage = await channel.send({ embeds: [embed] });
   } else {
-    await messageToEdit.edit({ embeds: [embed] });
+    await statusMessage.edit({ embeds: [embed] });
   }
 }
 
-client.once('ready', () => {
-  console.log(`✅ Logged in as ${client.user.tag}`);
-  updateStatusEmbed();
-  setInterval(updateStatusEmbed, 5 * 60 * 1000);
+client.once('ready', async () => {
+  console.log(`Logged in as ${client.user.tag}`);
+  await updateStatus();
+  setInterval(updateStatus, 5 * 60 * 1000); // Every 5 minutes
 });
 
-client.login(BOT_TOKEN);
+client.login(botToken);
