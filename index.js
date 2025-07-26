@@ -1,9 +1,11 @@
-const { Client, GatewayIntentBits, EmbedBuilder } = require('discord.js');
-const fetch = require('node-fetch');
-const client = new Client({ intents: [GatewayIntentBits.Guilds] });
+import fetch from 'node-fetch';
+import { Client, GatewayIntentBits, EmbedBuilder } from 'discord.js';
+import 'dotenv/config';
 
-const CHANNEL_ID = 'YOUR_CHANNEL_ID_HERE';
-const BOT_TOKEN = 'YOUR_DISCORD_BOT_TOKEN';
+const CHANNEL_ID = process.env.CHANNEL_ID;
+const BOT_TOKEN = process.env.DISCORD_TOKEN;
+
+const client = new Client({ intents: [GatewayIntentBits.Guilds] });
 
 let messageToEdit;
 
@@ -62,7 +64,7 @@ async function updateStatusEmbed() {
 client.once('ready', () => {
   console.log(`✅ Logged in as ${client.user.tag}`);
   updateStatusEmbed();
-  setInterval(updateStatusEmbed, 5 * 60 * 1000); // every 5 minutes
+  setInterval(updateStatusEmbed, 5 * 60 * 1000);
 });
 
 client.login(BOT_TOKEN);
