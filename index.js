@@ -1,88 +1,92 @@
-import express from 'express';
 import { Client, GatewayIntentBits, EmbedBuilder } from 'discord.js';
 import fetch from 'node-fetch';
-import 'dotenv/config';
+import dotenv from 'dotenv';
 
-const app = express();
-const port = process.env.PORT || 4000;
+dotenv.config();
 
-app.get('/', (req, res) => {
-  res.send('Quinx Status Bot is live!');
+const client = new Client({
+  intents: [
+    GatewayIntentBits.Guilds,
+    GatewayIntentBits.GuildMessages,
+    GatewayIntentBits.MessageContent
+  ]
 });
 
-app.listen(port, () => {
-  console.log(`Web server running on port ${port}`);
-});
+// === CONFIG ===
+const GUILD_ID = '1389456112876785765';
+const STATUS_CHANNEL_ID = '1398266959925084221';
+const ALERT_CHANNEL_ID = '1390280298742288408';
 
-// Discord bot logic
-const client = new Client({ intents: [GatewayIntentBits.Guilds] });
+const MONITORS = [
+  { name: 'Quinx', apiKey: 'm800892506-092936812863f4592e776d48' },
+  { name: 'Quinx Role', apiKey: 'u2822432-2c4c6580ce03ea9701e612e3' },
+  { name: 'Quinx Chat', apiKey: 'u2822432-2c4c6580ce03ea9701e612e3' }
+];
 
-const guildId = process.env.GUILD_ID;
-const channelId = process.env.CHANNEL_ID;
-const botToken = process.env.BOT_TOKEN;
+let messageToEdit;
 
-const monitorKeys = {
-  'Quinx | Support': process.env.MONITOR_SUPPORT,
-  'Quinx Role': process.env.MONITOR_ROLE,
-  'Quinx Chat': process.env.MONITOR_CHAT,
-};
+async function checkStatuses() {
+  const statuses = [];
 
-let statusCache = {};
-let statusMessage;
+  for (const monitor of MONITORS) {
+    try {
+      const response = await fetch('https://api.uptimerobot.com/v2/getMonitors', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ api_key: monitor.apiKey, format: 'json' })
+      });
 
-async function getStatus(apiKey) {
-  try {
-    const response = await fetch('https://api.uptimerobot.com/v2/getMonitors', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        api_key: apiKey,
-        format: 'json',
-      }),
-    });
-    const data = await response.json();
-    return data.monitors?.[0]?.status === 2 ? '🟢 Online' : '🔴 Offline';
-  } catch (e) {
-    console.error('Error fetching status:', e);
-    return '⚠️ Error';
-  }
-}
+      const data = await response.json();
+      const statusCode = data.monitors?.[0]?.status;
 
-async function updateStatus() {
-  const fields = [];
+      const isOnline = statusCode === 2; // 2 = online, 9 = offline
+      statuses.push({
+        name: monitor.name,
+        online: isOnline
+      });
 
-  for (const [name, key] of Object.entries(monitorKeys)) {
-    const status = await getStatus(key);
+      // Alert staff if offline
+      if (!isOnline) {
+        const alertChannel = await client.channels.fetch(ALERT_CHANNEL_ID);
+        alertChannel.send(`⚠️ ${monitor.name} is currently **offline**! <@&1389488347126435942>`);
+      }
 
-    if (statusCache[name] !== status) {
-      statusCache[name] = status;
+    } catch (error) {
+      console.error(`Error checking ${monitor.name}:`, error);
+      statuses.push({ name: monitor.name, online: false });
     }
-
-    fields.push({ name, value: status, inline: true });
   }
 
   const embed = new EmbedBuilder()
-    .setTitle('🛡️ Quinx Bot Status Monitor')
-    .setColor(0x9b59b6)
+    .setTitle('🛰 Quinx Bot Status')
+    .setColor(0x6A0DAD) // Purple
     .setTimestamp()
-    .addFields(fields)
-    .setFooter({ text: 'Updated every 5 minutes' });
+    .setDescription(
+      statuses
+        .map(status => `**${status.name}** : ${status.online ? '🟢 Online' : '🔴 Offline'}`)
+        .join('\n')
+    );
 
-  if (!statusMessage) {
-    const channel = await client.channels.fetch(channelId);
-    statusMessage = await channel.send({ embeds: [embed] });
-  } else {
-    await statusMessage.edit({ embeds: [embed] });
+  try {
+    const statusChannel = await client.channels.fetch(STATUS_CHANNEL_ID);
+    if (!messageToEdit) {
+      messageToEdit = await statusChannel.send({ embeds: [embed] });
+    } else {
+      await messageToEdit.edit({ embeds: [embed] });
+    }
+  } catch (err) {
+    console.error('Error sending/updating status embed:', err);
   }
 }
 
 client.once('ready', async () => {
-  console.log(`Logged in as ${client.user.tag}`);
-  await updateStatus();
-  setInterval(updateStatus, 5 * 60 * 1000);
+  console.log(`✅ Logged in as ${client.user.tag}`);
+
+  // Initial run
+  await checkStatuses();
+
+  // Run every 5 minutes
+  setInterval(checkStatuses, 5 * 60 * 1000);
 });
 
-process.on('unhandledRejection', console.error);
-process.on('uncaughtException', console.error);
-
-client.login(botToken);
+client.login(process.env.BOT_TOKEN);
