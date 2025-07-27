@@ -1,7 +1,21 @@
 const { Client, GatewayIntentBits, EmbedBuilder } = require('discord.js');
 const axios = require('axios');
+const express = require('express');
 require('dotenv').config();
 
+// Setup Express
+const app = express();
+const PORT = process.env.PORT || 3000;
+
+app.get('/', (req, res) => {
+  res.send('Quinx Status Bot is running!');
+});
+
+app.listen(PORT, () => {
+  console.log(`🌐 Express server started on port ${PORT}`);
+});
+
+// Setup Discord Bot
 const client = new Client({
   intents: [GatewayIntentBits.Guilds]
 });
@@ -35,7 +49,7 @@ async function updateStatus(channel) {
       { name: 'Quinx | Chat', value: chatStatus, inline: false },
       { name: 'Quinx | Role', value: roleStatus, inline: false }
     )
-    .setFooter({ text: 'Updates after every 5 minutes' })
+    .setFooter({ text: 'Active status changes every 5 minutes' })
     .setColor(0x800080);
 
   try {
