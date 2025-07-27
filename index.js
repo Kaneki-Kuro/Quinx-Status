@@ -35,7 +35,7 @@ async function updateStatus(channel) {
       { name: 'Quinx | Chat', value: chatStatus, inline: false },
       { name: 'Quinx | Role', value: roleStatus, inline: false }
     )
-    .setFooter({ text: 'Active status changes every 5 minutes' })
+    .setFooter({ text: 'Updates after every 5 minutes' })
     .setColor(0x800080);
 
   try {
