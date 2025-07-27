@@ -35,7 +35,7 @@ async function updateStatus(channel) {
       { name: 'Quinx | Chat', value: chatStatus, inline: false },
       { name: 'Quinx | Role', value: roleStatus, inline: false }
     )
-    .setFooter({ text: `Last checked: ${new Date().toLocaleTimeString()}` })
+    .setFooter({ text: 'Active status changes every 5 minutes' })
     .setColor(0x800080);
 
   try {
@@ -48,7 +48,7 @@ async function updateStatus(channel) {
 }
 
 client.once('ready', async () => {
-  console.log(`Logged in as ${client.user.tag}`);
+  console.log(`✅ Logged in as ${client.user.tag}`);
   const channel = await client.channels.fetch(process.env.CHANNEL_ID);
   await updateStatus(channel);
   setInterval(() => updateStatus(channel), 5 * 60 * 1000); // every 5 mins
